@@ -7,6 +7,7 @@ from rest_framework import status
 from .models import Persona
 from .serializers import PersonaSerializer
 from .models import Gasto
+from rest_framework.generics import RetrieveUpdateDestroyAPIView
 
 class PersonaList(APIView):
     def get(self, request):
@@ -21,6 +22,10 @@ class PersonaList(APIView):
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+
+class PersonaDetail(RetrieveUpdateDestroyAPIView):
+    queryset = Persona.objects.all()
+    serializer_class = PersonaSerializer
 
 
 class GastoList(APIView):
