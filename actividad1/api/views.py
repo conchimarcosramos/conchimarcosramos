@@ -44,7 +44,7 @@ class GastoList(APIView):
 class DividirGastos(APIView):
     def get(self, request):
         personas = Persona.objects.all()
-        total_gastos = sum(gasto.monto for gasto in Gasto.objects.all())
+        total_gastos = sum(gasto.importe for gasto in Gasto.objects.all())
         if personas.count() > 0:
             gasto_por_persona = total_gastos / personas.count()
         else:
