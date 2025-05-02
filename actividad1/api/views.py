@@ -1,13 +1,14 @@
 from django.shortcuts import render
 
-# Create your views here.
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from .models import Persona
 from .serializers import PersonaSerializer
-from .models import Gasto
-from rest_framework.generics import RetrieveUpdateDestroyAPIView
+from rest_framework.generics import ListCreateAPIView, RetrieveUpdateDestroyAPIView
+from .serializers import GastoSerializer
+from django.db.models import Sum
+from rest_framework.decorators import api_view
+from .models import Gasto, Persona
 
 class PersonaList(APIView):
     def get(self, request):
@@ -22,11 +23,9 @@ class PersonaList(APIView):
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-
 class PersonaDetail(RetrieveUpdateDestroyAPIView):
     queryset = Persona.objects.all()
     serializer_class = PersonaSerializer
-
 
 class GastoList(APIView):
     def get(self, request):
@@ -54,3 +53,37 @@ class DividirGastos(APIView):
             "gasto_por_persona": gasto_por_persona
         }
         return Response(resultado)
+
+class GastoListCreateView(ListCreateAPIView):
+    queryset = Gasto.objects.all()
+    serializer_class = GastoSerializer
+
+class GastoDetailView(RetrieveUpdateDestroyAPIView):
+    queryset = Gasto.objects.all()
+    serializer_class = GastoSerializer
+
+
+
+@api_view(['GET'])
+def calcular_division_gastos(request):
+    personas = Persona.objects.all()
+    total_gastos = Gasto.objects.aggregate(total=Sum('importe'))['total'] or 0
+    total_personas = personas.count()
+
+    if total_personas == 0:
+        return Response({"mensaje": "No hay personas registradas."}, status=400)
+
+    gasto_por_persona = total_gastos / total_personas
+
+    resultado = []
+    for persona in personas:
+        gastado = Gasto.objects.filter(persona=persona).aggregate(total=Sum('importe'))['total'] or 0
+        saldo = gastado - gasto_por_persona
+        resultado.append({
+            "persona": persona.nombre,
+            "gastado": gastado,
+            "debe": gasto_por_persona - gastado if saldo < 0 else 0,
+            "recibe": saldo if saldo > 0 else 0
+        })
+
+    return Response({"total_gastos": total_gastos, "detalles": resultado})
