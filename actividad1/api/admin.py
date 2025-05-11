@@ -12,3 +12,6 @@ class GastoAdmin(admin.ModelAdmin):
 
 admin.site.register(Grupo, GrupoAdmin)
 admin.site.register(Gasto, GastoAdmin)
+
+# realizo las modificaciones necesarios, según criterio del profesor
+
