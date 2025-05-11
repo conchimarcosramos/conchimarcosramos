@@ -1,89 +1,68 @@
-from django.shortcuts import render
-
-from rest_framework.views import APIView
+from rest_framework import viewsets, status
 from rest_framework.response import Response
-from rest_framework import status
-from .serializers import PersonaSerializer
-from rest_framework.generics import ListCreateAPIView, RetrieveUpdateDestroyAPIView
-from .serializers import GastoSerializer
+from rest_framework.views import APIView
 from django.db.models import Sum
-from rest_framework.decorators import api_view
-from .models import Gasto, Persona
+from .models import Persona, Gasto
+from .serializers import GastoSerializer, PersonaSerializer
 
-class PersonaList(APIView):
-    def get(self, request):
-        personas = Persona.objects.all()
-        serializer = PersonaSerializer(personas, many=True)
-        return Response(serializer.data)
+class GastoViewSet(viewsets.ModelViewSet):
+    """Vista optimizada para CRUD de Gastos usando ModelViewSet"""
+    queryset = Gasto.objects.all()
+    serializer_class = GastoSerializer
 
-    def post(self, request):
-        serializer = PersonaSerializer(data=request.data)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-class PersonaDetail(RetrieveUpdateDestroyAPIView):
+class PersonaViewSet(viewsets.ModelViewSet):
+    """Vista optimizada para CRUD de Personas"""
     queryset = Persona.objects.all()
     serializer_class = PersonaSerializer
 
-class GastoList(APIView):
-    def get(self, request):
-        gastos = Gasto.objects.all()
-        serializer = GastoSerializer(gastos, many=True)
-        return Response(serializer.data)
+class DivisionGastos(APIView):
+    """Calcula cuánto debe pagar o recibir cada persona y sugiere pagos"""
 
-    def post(self, request):
-        serializer = GastoSerializer(data=request.data)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-class DividirGastos(APIView):
     def get(self, request):
         personas = Persona.objects.all()
-        total_gastos = sum(gasto.importe for gasto in Gasto.objects.all())
-        if personas.count() > 0:
-            gasto_por_persona = total_gastos / personas.count()
-        else:
-            gasto_por_persona = 0
-        resultado = {
+        total_gastos = Gasto.objects.aggregate(total=Sum('importe'))['total'] or 0
+        gasto_por_persona = total_gastos / personas.count() if personas.count() > 0 else 0
+
+        resultado = []
+        deudores = []
+        acreedores = []
+
+        # 🔹 Calcular saldo de cada persona
+        for persona in personas:
+            gastado = Gasto.objects.filter(persona=persona).aggregate(total=Sum('importe'))['total'] or 0
+            saldo = gastado - gasto_por_persona
+            resultado.append({
+                "persona": persona.nombre,
+                "gastado": gastado,
+                "debe": max(0, gasto_por_persona - gastado),
+                "recibe": max(0, saldo)
+            })
+            
+            if saldo < 0:
+                deudores.append({"persona": persona, "deuda": abs(saldo)})
+            elif saldo > 0:
+                acreedores.append({"persona": persona, "credito": saldo})
+
+        # 🔹 Generar sugerencias de pago
+        pagos_sugeridos = []
+        while deudores and acreedores:
+            deudor = deudores.pop(0)
+            acreedor = acreedores.pop(0)
+            monto = min(deudor["deuda"], acreedor["credito"])
+            pagos_sugeridos.append(f"{deudor['persona'].nombre} debe pagar {monto:.2f}€ a {acreedor['persona'].nombre}")
+
+            # Ajustamos cuentas
+            deudor["deuda"] -= monto
+            acreedor["credito"] -= monto
+
+            # Si aún tienen saldo pendiente, los mantenemos en la lista
+            if deudor["deuda"] > 0:
+                deudores.insert(0, deudor)
+            if acreedor["credito"] > 0:
+                acreedores.insert(0, acreedor)
+
+        return Response({
             "total_gastos": total_gastos,
-            "gasto_por_persona": gasto_por_persona
-        }
-        return Response(resultado)
-
-class GastoListCreateView(ListCreateAPIView):
-    queryset = Gasto.objects.all()
-    serializer_class = GastoSerializer
-
-class GastoDetailView(RetrieveUpdateDestroyAPIView):
-    queryset = Gasto.objects.all()
-    serializer_class = GastoSerializer
-
-
-
-@api_view(['GET'])
-def calcular_division_gastos(request):
-    personas = Persona.objects.all()
-    total_gastos = Gasto.objects.aggregate(total=Sum('importe'))['total'] or 0
-    total_personas = personas.count()
-
-    if total_personas == 0:
-        return Response({"mensaje": "No hay personas registradas."}, status=400)
-
-    gasto_por_persona = total_gastos / total_personas
-
-    resultado = []
-    for persona in personas:
-        gastado = Gasto.objects.filter(persona=persona).aggregate(total=Sum('importe'))['total'] or 0
-        saldo = gastado - gasto_por_persona
-        resultado.append({
-            "persona": persona.nombre,
-            "gastado": gastado,
-            "debe": gasto_por_persona - gastado if saldo < 0 else 0,
-            "recibe": saldo if saldo > 0 else 0
+            "detalle": resultado,
+            "pagos_sugeridos": pagos_sugeridos
         })
-
-    return Response({"total_gastos": total_gastos, "detalles": resultado})
