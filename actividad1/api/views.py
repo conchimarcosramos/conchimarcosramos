@@ -2,8 +2,8 @@ from rest_framework import viewsets, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.db.models import Sum
-from .models import Persona, Gasto
-from .serializers import GastoSerializer, PersonaSerializer
+from .models import Persona, Gasto, Grupo
+from .serializers import GastoSerializer, PersonaSerializer, GrupoSerializer
 
 class GastoViewSet(viewsets.ModelViewSet):
     """Vista optimizada para CRUD de Gastos usando ModelViewSet"""
@@ -14,6 +14,11 @@ class PersonaViewSet(viewsets.ModelViewSet):
     """Vista optimizada para CRUD de Personas"""
     queryset = Persona.objects.all()
     serializer_class = PersonaSerializer
+
+class GrupoViewSet(viewsets.ModelViewSet):
+    """Vista optimizada para CRUD de Grupos"""
+    queryset = Grupo.objects.all()
+    serializer_class = GrupoSerializer
 
 class DivisionGastos(APIView):
     """Calcula cuánto debe pagar o recibir cada persona y sugiere pagos"""
@@ -39,26 +44,26 @@ class DivisionGastos(APIView):
             })
             
             if saldo < 0:
-                deudores.append({"persona": persona, "deuda": abs(saldo)})
+                deudores.append({"persona": persona, "saldo": saldo})
             elif saldo > 0:
-                acreedores.append({"persona": persona, "credito": saldo})
+                acreedores.append({"persona": persona, "saldo": saldo})
 
-        # 🔹 Generar sugerencias de pago
+        # 🔹 Generar sugerencias de pago de manera más eficiente
         pagos_sugeridos = []
         while deudores and acreedores:
             deudor = deudores.pop(0)
             acreedor = acreedores.pop(0)
-            monto = min(deudor["deuda"], acreedor["credito"])
+            monto = min(abs(deudor["saldo"]), acreedor["saldo"])
             pagos_sugeridos.append(f"{deudor['persona'].nombre} debe pagar {monto:.2f}€ a {acreedor['persona'].nombre}")
 
             # Ajustamos cuentas
-            deudor["deuda"] -= monto
-            acreedor["credito"] -= monto
+            deudor["saldo"] += monto
+            acreedor["saldo"] -= monto
 
             # Si aún tienen saldo pendiente, los mantenemos en la lista
-            if deudor["deuda"] > 0:
+            if deudor["saldo"] < 0:
                 deudores.insert(0, deudor)
-            if acreedor["credito"] > 0:
+            if acreedor["saldo"] > 0:
                 acreedores.insert(0, acreedor)
 
         return Response({
